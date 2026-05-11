@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF → PNG 変換</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+      color: #333;
+    }
+    h1 { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
+    .subtitle { color: #666; font-size: 14px; margin-bottom: 32px; }
+
+    #drop-zone {
+      width: 100%;
+      max-width: 600px;
+      border: 2px dashed #ccc;
+      border-radius: 12px;
+      background: #fff;
+      padding: 60px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    #drop-zone.dragover { border-color: #4f46e5; background: #eef2ff; }
+    #drop-zone .icon { font-size: 48px; margin-bottom: 16px; }
+    #drop-zone p { color: #666; font-size: 15px; }
+    #drop-zone span { color: #4f46e5; font-weight: 600; }
+    #file-input { display: none; }
+
+    .options {
+      width: 100%;
+      max-width: 600px;
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 16px;
+      display: none;
+    }
+    .options label { font-size: 14px; color: #555; margin-right: 8px; }
+    .options input[type=range] { width: 140px; vertical-align: middle; }
+    .options span { font-size: 14px; color: #333; font-weight: 600; }
+    .options select { padding: 4px 8px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; margin-left: 16px; }
+
+    #convert-btn {
+      margin-top: 16px;
+      padding: 12px 32px;
+      background: #4f46e5;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      display: none;
+      transition: background 0.2s;
+    }
+    #convert-btn:hover { background: #4338ca; }
+    #convert-btn:disabled { background: #a5b4fc; cursor: not-allowed; }
+
+    #progress {
+      width: 100%;
+      max-width: 600px;
+      margin-top: 16px;
+      display: none;
+    }
+    .progress-bar-bg {
+      background: #e5e7eb;
+      border-radius: 999px;
+      height: 8px;
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: #4f46e5;
+      border-radius: 999px;
+      transition: width 0.3s;
+      width: 0%;
+    }
+    #progress-text { font-size: 13px; color: #666; margin-top: 6px; text-align: center; }
+
+    #results {
+      width: 100%;
+      max-width: 600px;
+      margin-top: 24px;
+    }
+    .result-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .result-header h2 { font-size: 16px; font-weight: 600; }
+    #download-all {
+      padding: 8px 18px;
+      background: #10b981;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #download-all:hover { background: #059669; }
+
+    .page-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 16px;
+    }
+    .page-card {
+      background: #fff;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      text-align: center;
+    }
+    .page-card img { width: 100%; display: block; }
+    .page-card .card-footer {
+      padding: 10px;
+      border-top: 1px solid #f0f0f0;
+    }
+    .page-card .card-footer span { font-size: 12px; color: #888; display: block; margin-bottom: 6px; }
+    .page-card a {
+      font-size: 13px;
+      color: #4f46e5;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .page-card a:hover { text-decoration: underline; }
+
+    #file-name {
+      font-size: 14px;
+      color: #4f46e5;
+      margin-top: 8px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>PDF → PNG 変換</h1>
+  <p class="subtitle">PDFをページごとにPNG画像に変換します。ファイルはブラウザ内で処理され、外部に送信されません。</p>
+
+  <div id="drop-zone" onclick="document.getElementById('file-input').click()">
+    <div class="icon">📄</div>
+    <p><span>クリックしてPDFを選択</span>、またはここにドラッグ&amp;ドロップ</p>
+    <div id="file-name"></div>
+  </div>
+  <input type="file" id="file-input" accept="application/pdf">
+
+  <div class="options" id="options-panel">
+    <label>解像度（DPI相当）:</label>
+    <input type="range" id="scale" min="1" max="4" step="0.5" value="2">
+    <span id="scale-label">2x（高品質）</span>
+    <select id="format">
+      <option value="image/png">PNG</option>
+      <option value="image/jpeg">JPEG</option>
+    </select>
+  </div>
+
+  <button id="convert-btn">変換スタート</button>
+
+  <div id="progress">
+    <div class="progress-bar-bg"><div class="progress-bar-fill" id="progress-fill"></div></div>
+    <div id="progress-text">変換中...</div>
+  </div>
+
+  <div id="results"></div>
+
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    let pdfFile = null;
+    let pages = [];
+
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const convertBtn = document.getElementById('convert-btn');
+    const optionsPanel = document.getElementById('options-panel');
+    const scaleSlider = document.getElementById('scale');
+    const scaleLabel = document.getElementById('scale-label');
+    const formatSelect = document.getElementById('format');
+    const progressEl = document.getElementById('progress');
+    const progressFill = document.getElementById('progress-fill');
+    const progressText = document.getElementById('progress-text');
+    const resultsEl = document.getElementById('results');
+    const fileNameEl = document.getElementById('file-name');
+
+    const scaleLabels = { '1': '1x（標準）', '1.5': '1.5x', '2': '2x（高品質）', '2.5': '2.5x', '3': '3x（超高解像度）', '3.5': '3.5x', '4': '4x（印刷品質）' };
+    scaleSlider.addEventListener('input', () => {
+      scaleLabel.textContent = scaleLabels[scaleSlider.value] || scaleSlider.value + 'x';
+    });
+
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file && file.type === 'application/pdf') loadFile(file);
+    });
+    fileInput.addEventListener('change', e => {
+      if (e.target.files[0]) loadFile(e.target.files[0]);
+    });
+
+    function loadFile(file) {
+      pdfFile = file;
+      fileNameEl.textContent = '📎 ' + file.name;
+      optionsPanel.style.display = 'block';
+      convertBtn.style.display = 'inline-block';
+      resultsEl.innerHTML = '';
+      progressEl.style.display = 'none';
+    }
+
+    convertBtn.addEventListener('click', async () => {
+      if (!pdfFile) return;
+      convertBtn.disabled = true;
+      pages = [];
+      resultsEl.innerHTML = '';
+      progressEl.style.display = 'block';
+      progressFill.style.width = '0%';
+
+      const scale = parseFloat(scaleSlider.value);
+      const format = formatSelect.value;
+      const ext = format === 'image/jpeg' ? 'jpg' : 'png';
+
+      const arrayBuffer = await pdfFile.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const total = pdf.numPages;
+
+      const baseName = pdfFile.name.replace(/\.pdf$/i, '');
+
+      for (let i = 1; i <= total; i++) {
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({ scale });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport }).promise;
+
+        const dataUrl = canvas.toDataURL(format, 0.95);
+        pages.push({ dataUrl, name: `${baseName}_p${String(i).padStart(3,'0')}.${ext}` });
+
+        const pct = Math.round((i / total) * 100);
+        progressFill.style.width = pct + '%';
+        progressText.textContent = `${i} / ${total} ページ変換中...`;
+      }
+
+      progressText.textContent = '完了！';
+      convertBtn.disabled = false;
+      renderResults(baseName, ext);
+    });
+
+    function renderResults(baseName, ext) {
+      resultsEl.innerHTML = `
+        <div class="result-header">
+          <h2>${pages.length}ページ変換しました</h2>
+          <button id="download-all">全ページをまとめてDL</button>
+        </div>
+        <div class="page-grid" id="page-grid"></div>
+      `;
+
+      const grid = document.getElementById('page-grid');
+      pages.forEach((p, i) => {
+        const card = document.createElement('div');
+        card.className = 'page-card';
+        card.innerHTML = `
+          <img src="${p.dataUrl}" alt="Page ${i+1}">
+          <div class="card-footer">
+            <span>ページ ${i+1}</span>
+            <a href="${p.dataUrl}" download="${p.name}">ダウンロード</a>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+
+      document.getElementById('download-all').addEventListener('click', async () => {
+        for (let i = 0; i < pages.length; i++) {
+          const a = document.createElement('a');
+          a.href = pages[i].dataUrl;
+          a.download = pages[i].name;
+          a.click();
+          await new Promise(r => setTimeout(r, 300));
+        }
+      });
+    }
+  </script>
+</body>
+</html>
